@@ -1,0 +1,85 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-orchestrator-rust-sa
+  namespace: dedev
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-orchestrator-rust-role
+  namespace: dedev
+rules:
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "get", "list", "watch", "delete"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-orchestrator-rust-rolebinding
+  namespace: dedev
+subjects:
+- kind: ServiceAccount
+  name: agent-orchestrator-rust-sa
+  namespace: dedev
+roleRef:
+  kind: Role
+  name: agent-orchestrator-rust-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-orchestrator-rust
+  namespace: dedev
+  labels:
+    app: agent-orchestrator-rust
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-orchestrator-rust
+  template:
+    metadata:
+      labels:
+        app: agent-orchestrator-rust
+    spec:
+      # Use the specific ServiceAccount to grant permissions to the K8s API
+      serviceAccountName: agent-orchestrator-rust-sa
+      containers:
+      - name: agent-orchestrator-rust
+        image: agent-orchestrator-rust:local
+        imagePullPolicy: IfNotPresent
+        env:
+        # Standard Environment Variables
+        - name: K8S_NAMESPACE
+          value: "dedev"
+        - name: PULSAR_SERVICE_URL
+          valueFrom:
+            secretKeyRef:
+              name: opencode-agent-secrets
+              key: pulsar-service-url
+        - name: PULSAR_TOPIC
+          value: "persistent://public/default/agent-tasks"
+        - name: PULSAR_SUBSCRIPTION
+          value: "agent-orchestrator-rust-sub"
+        - name: AGENT_WORKER_IMAGE
+          value: "your-registry.com/dedev/opencode-worker:latest"
+        - name: GCS_DEDEV_ROOT
+          value: "my-dedev-gcs-bucket/embeddings"
+        - name: SECRET_NAME
+          value: "opencode-agent-secrets"
+        # Secrets
+        - name: PULSAR_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: opencode-agent-secrets
+              key: pulsar-auth-token

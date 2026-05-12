@@ -1,0 +1,85 @@
+pipeline {
+    agent {
+        // Run on a Jenkins worker node that has Docker installed
+        label 'docker-node' 
+    }
+
+    environment {
+        // Basic configuration
+        PROJECT_NAME = 'jvm-func-pantry'
+        GCS_BUCKET_NAME = 'my-dedev-gcs-bucket'
+        GCS_ROOT_PATH = 'embeddings'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // Checkout the repository
+                checkout scm
+            }
+        }
+
+        stage('Build Normal Project') {
+            steps {
+                echo "Running standard build steps for the project..."
+                // e.g., sh "mvn clean install"
+            }
+        }
+
+        stage('Generate and Upload Embeddings') {
+            // Only run this on specific branches if desired, e.g., master/main
+            // when { branch 'master' }
+            
+            steps {
+                script {
+                    // Get the branch name dynamically from Git
+                    env.BRANCH_NAME = sh(script: "git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
+
+                    // Build the Docker image that contains FAISS and OpenAI dependencies
+                    // Note: You can also pre-build this image and push it to your registry
+                    // to save time, e.g., docker.image('your-registry/embedding-builder:latest').inside { ... }
+                    def embeddingImage = docker.build("embedding-builder:${env.BUILD_ID}", "-f Dockerfile.embeddings .")
+
+                    // Run the embedding generation inside the Docker container
+                    embeddingImage.inside {
+                        // 1. Retrieve the Service Account JSON file for GCS authentication
+                        withCredentials([file(credentialsId: 'jvm-func-pantry-gcs-sa', variable: 'GCS_KEY')]) {
+                            
+                            // Set up GCS credentials environment variable
+                            sh "cat ${GCS_KEY} > /tmp/gcs-creds.json"
+                            sh "export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcs-creds.json"
+
+                            // Execute the python script. 
+                            // WORKSPACE is automatically set by Jenkins and mounted into the container.
+                            echo "Generating FAISS embeddings for ${PROJECT_NAME} branch ${BRANCH_NAME}..."
+                            
+                            warnError(catchInterruptions: true, message: 'Embedding generation failed') {
+                                sh """
+                                    export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcs-creds.json
+                                    # Pass the required env vars explicitly
+                                    export PROJECT_NAME=${PROJECT_NAME}
+                                    export BRANCH_NAME=${BRANCH_NAME}
+                                    export GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+                                    export GCS_ROOT_PATH=${GCS_ROOT_PATH}
+                                    
+                                    # Run the script to chunk, embed, and push to GCS
+                                    python3 generate_embeddings.py
+                                """
+                            }
+                            
+                            // Cleanup temporary credentials
+                            sh "rm -f /tmp/gcs-creds.json || true"
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Clean up the workspace
+            cleanWs()
+        }
+    }
+}

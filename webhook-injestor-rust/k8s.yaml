@@ -1,0 +1,80 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-injestor-rust
+  namespace: dedev
+  labels:
+    app: webhook-injestor-rust
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook-injestor-rust
+  template:
+    metadata:
+      labels:
+        app: webhook-injestor-rust
+    spec:
+      containers:
+      - name: webhook-injestor-rust
+        image: webhook-injestor-rust:local
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: gcp-adc-volume
+          mountPath: /var/secrets/google
+          readOnly: true
+        env:
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/secrets/google/credentials.json
+        - name: GOOGLE_CLOUD_PROJECT
+          value: "ostk-gcp-dataengcore-prod"
+        - name: GCP_PROJECT_ID
+          value: "ostk-gcp-dataengcore-prod"
+        - name: GCP_SUBSCRIPTION_ID
+          value: "test-jira-sub"
+        - name: PULSAR_SERVICE_URL
+          valueFrom:
+            secretKeyRef:
+              name: opencode-agent-secrets
+              key: pulsar-service-url
+        - name: PULSAR_TOPIC
+          value: "persistent://public/default/agent-tasks"
+        - name: PULSAR_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: opencode-agent-secrets
+              key: pulsar-auth-token
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: gcp-adc-volume
+        secret:
+          secretName: webhook-ingester-gcp-sa
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-injestor-rust-svc
+  namespace: dedev
+spec:
+  selector:
+    app: webhook-injestor-rust
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP

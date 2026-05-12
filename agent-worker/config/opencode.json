@@ -1,0 +1,23 @@
+{
+  "mcp": {
+    "jira": {
+      "type": "local",
+      "command": ["npx", "-y", "mcp-jira-cloud@latest"],
+      "enabled": true,
+      "environment": {
+        "JIRA_BASE_URL": "https://overstock.atlassian.net",
+        "JIRA_EMAIL": "itowey@beyond.com",
+        "JIRA_API_TOKEN": "{env:JIRA_API_TOKEN}"
+      }
+    },
+    "bitbucket": {
+      "type": "local",
+      "command": ["npx", "-y", "@atlassian-dc-mcp/bitbucket@latest"],
+      "enabled": true,
+      "environment": {
+        "BITBUCKET_API_BASE_PATH": "https://git.overstock.com/rest",
+        "BITBUCKET_API_TOKEN": "{env:BITBUCKET_TOKEN}"
+      }
+    }
+  }
+}

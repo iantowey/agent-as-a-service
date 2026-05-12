@@ -1,0 +1,65 @@
+#!/usr/bin/env groovy
+
+def version = 'latest'
+def gcpProj = 'ostk-gcp-dataengcoredr-prod'
+def gcrRepo = "us-docker.pkg.dev/ostk-gcp-dataengcoredr-prod/images"
+def fileName = 'agent-orchestrator-rust'
+def ostkRepo = "de/${fileName}"
+
+def imagesToBuild = [
+        [fileName, ostkRepo, version],
+]
+
+def wasManuallyKickedOff() {
+  return currentBuild.rawBuild.getCauses()[0].class.toString().endsWith('UserIdCause')
+}
+
+def isRelease() {
+  return env.BRANCH_NAME == 'master' && wasManuallyKickedOff()
+}
+
+pipeline {
+    agent {
+        label 'docker'
+    }
+    stages {
+        stage('Setup parameters') {
+            steps {
+                script {
+                    properties([
+                        parameters([
+                            string(
+                                defaultValue: '',
+                                name: 'TAG',
+                                trim: true
+                            )
+                        ])
+                    ])
+                }
+            }
+        }
+        stage('Build Image') {
+            steps {
+                script {
+                    sh "echo image with 'latest' tag will be updated on the 'test' docker repo "
+
+                    docker.withRegistry('https://docker-internal-latest.overstock.com:8087','docker-ostk') {
+                        sh script: "echo Image name ::  ${ostkRepo}:latest"
+                        customImage = docker.build("${ostkRepo}:latest")
+                        customImage.push("latest")
+                    }
+
+                    if (isRelease()) {
+                        sh "echo master - image will  be pushed"
+                        docker.withRegistry('https://docker.overstock.com:8085', 'docker-user') {
+                            def prod_version = "1.0.0-build.${env.BUILD_NUMBER}"
+                            sh script: "echo Image name ::  ${ostkRepo}:${prod_version}"
+                            customImage = docker.build("${ostkRepo}:${prod_version}")
+                            customImage.push()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
